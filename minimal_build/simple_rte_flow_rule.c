@@ -1,14 +1,16 @@
 #include <stdio.h>
 #include <unistd.h>
-#include <doca_dev.h>
-#include <doca_error.h>
-#include <doca_sync_event.h>
-#include <doca_dpa.h>
-#include <doca_flow.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ifaddrs.h>
+#include <sys/socket.h>
+#include <linux/if_packet.h>
+#include <net/if.h>
+#include <rte_bus_pci.h>  // for RTE_DEV_TO_PCI
 #include <rte_eal.h>
 #include <rte_ethdev.h>
 #include <rte_dev.h>
-#include <rte_flow.h> // definitions are found in the librte_ethdev library
+#include <rte_flow.h>
 #include <rte_mbuf.h>
 
 // target mac: A0:88:C2:AB:7E:A2 -- p0, should be port # 2 on blue2
@@ -115,9 +117,6 @@ uint16_t dpdk_init(int argc, char **argv) {
 	// hard code port for now
     uint16_t port_id = 2;
 
-	rte_eal_init(argc, argv);
-    int log_level = rte_log_get_global_level();
-    printf("Current log level: %d\n", log_level);
 	int res = port_init(port_id);
 	if (res != 0) {
 		printf("Error initializing port %u\n", port_id);
@@ -125,6 +124,7 @@ uint16_t dpdk_init(int argc, char **argv) {
 	}
 	return port_id;
 }
+
 
 int add_test_flow_rule(uint16_t dpdk_port_id) {
     // Define the flow rule attributes
@@ -173,22 +173,144 @@ int add_test_flow_rule(uint16_t dpdk_port_id) {
 	return 0;
 }
 
-
 // example of using rte_flow to configure a flow in the eswitch of the connectx device
 int dpdk_rte_flow_test(int argc, char **argv) {
 	uint16_t dpdk_port_id = dpdk_init(argc, argv);
 	printf("Port ID: %u\n", dpdk_port_id);
 	add_test_flow_rule(dpdk_port_id);
 	return 0;
-
 }
 
+// Helper function to get Linux interface name by MAC address
+int get_linux_ifname_by_mac(struct rte_ether_addr *mac, char *ifname, size_t ifname_len) {
+    struct ifaddrs *ifaddr, *ifa;
+    int found = 0;
+
+    if (getifaddrs(&ifaddr) == -1) {
+        return -1;
+    }
+    // Iterate through all interfaces
+    for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == NULL)
+            continue;
+
+        // Check if this is a packet socket (has MAC address)
+        if (ifa->ifa_addr->sa_family == AF_PACKET) {
+            struct sockaddr_ll *s = (struct sockaddr_ll*)ifa->ifa_addr;
+
+            // Compare MAC addresses
+            if (s->sll_halen == RTE_ETHER_ADDR_LEN &&
+                memcmp(s->sll_addr, mac->addr_bytes, RTE_ETHER_ADDR_LEN) == 0) {
+                snprintf(ifname, ifname_len, "%s", ifa->ifa_name);
+                found = 1;
+                break;
+            }
+        }
+    }
+    freeifaddrs(ifaddr);
+    return found ? 0 : -1;
+}
+
+void list_ports(void) {
+    uint16_t port_id;
+    uint16_t nb_ports;
+    struct rte_eth_dev_info dev_info;
+    struct rte_ether_addr addr;
+    char name[RTE_ETH_NAME_MAX_LEN];
+    char linux_ifname[IFNAMSIZ];
+    int retval;
+
+    nb_ports = rte_eth_dev_count_avail();
+    printf("\n=== Available DPDK Ports ===\n");
+    printf("Total ports available: %u\n\n", nb_ports);
+
+    if (nb_ports == 0) {
+        printf("No DPDK ports found!\n");
+        return;
+    }
+
+    RTE_ETH_FOREACH_DEV(port_id) {
+        // Get MAC address first
+        retval = rte_eth_macaddr_get(port_id, &addr);
+        if (retval != 0) {
+            continue; // Skip if we can't get MAC
+        }
+
+        // Try to find Linux interface by MAC address
+        if (get_linux_ifname_by_mac(&addr, linux_ifname, sizeof(linux_ifname)) != 0) {
+            continue; // Skip ports without Linux interfaces
+        }
+
+        printf("Port %u:\n", port_id);
+
+        // Get device name
+        retval = rte_eth_dev_get_name_by_port(port_id, name);
+        if (retval == 0) {
+            printf("  DPDK Name: %s\n", name);
+
+            // Check if this is a representor port
+            if (strstr(name, "_representor_")) {
+                printf("  Type: Representor Port\n");
+            }
+        }
+
+        printf("  Linux Interface: %s\n", linux_ifname);
+
+        printf("  MAC Address: %02X:%02X:%02X:%02X:%02X:%02X\n",
+               addr.addr_bytes[0], addr.addr_bytes[1],
+               addr.addr_bytes[2], addr.addr_bytes[3],
+               addr.addr_bytes[4], addr.addr_bytes[5]);
+
+        // Get device info
+        retval = rte_eth_dev_info_get(port_id, &dev_info);
+        if (retval != 0) {
+            printf("  Error getting device info: %s\n", strerror(-retval));
+            continue;
+        }
+
+        // Print driver name
+        if (dev_info.driver_name) {
+            printf("  Driver: %s\n", dev_info.driver_name);
+        }
+
+        // Print device name if available
+        if (dev_info.device && rte_dev_name(dev_info.device)) {
+            printf("  Device: %s\n", rte_dev_name(dev_info.device));
+        }
+
+        // Print capabilities
+        printf("  Max RX queues: %u\n", dev_info.max_rx_queues);
+        printf("  Max TX queues: %u\n", dev_info.max_tx_queues);
+
+        // Print link status
+        struct rte_eth_link link;
+        retval = rte_eth_link_get_nowait(port_id, &link);
+        if (retval == 0) {
+            printf("  Link Status: %s\n", 
+                   link.link_status ? "UP" : "DOWN");
+            if (link.link_status) {
+                printf("  Link Speed: %u Mbps\n", link.link_speed);
+                printf("  Link Duplex: %s\n",
+                       link.link_duplex == RTE_ETH_LINK_FULL_DUPLEX ? "Full" : "Half");
+            }
+        }
+
+        printf("\n");
+    }
+    printf("============================\n\n");
+}
 
 int main(int argc, char **argv)
 {
+	rte_eal_init(argc, argv);
+    int log_level = rte_log_get_global_level();
+    printf("Current log level: %d\n", log_level);
 
+	list_ports();
 	dpdk_rte_flow_test(argc, argv);
-
-	// run_doca_dpa_kernel();
+    printf("Flow rule is active. Press Ctrl+C to exit.\n");
+    while (1) {
+        sleep(1);
+    }	
 	return 0;
 }
