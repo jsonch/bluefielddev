@@ -144,94 +144,94 @@ void list_ports(void) {
 #define MBUF_CACHE_SIZE 250
 // Open a DPDK port and initialized an mbuf pool for rx packets
 int port_init(uint16_t port) {
-	struct rte_mempool *mbuf_pool;
-	struct rte_eth_conf port_conf;
-	const uint16_t rx_rings = 1, tx_rings = 1;
-	uint16_t nb_rxd = RING_SIZE;
-	uint16_t nb_txd = RING_SIZE;
-	int retval;
-	uint16_t q;
-	struct rte_eth_dev_info dev_info;
-	struct rte_eth_txconf txconf;
+    struct rte_mempool *mbuf_pool;
+    struct rte_eth_conf port_conf;
+    const uint16_t rx_rings = 1, tx_rings = 1;
+    uint16_t nb_rxd = RING_SIZE;
+    uint16_t nb_txd = RING_SIZE;
+    int retval;
+    uint16_t q;
+    struct rte_eth_dev_info dev_info;
+    struct rte_eth_txconf txconf;
 
-	if (!rte_eth_dev_is_valid_port(port))
-		return -1;
+    if (!rte_eth_dev_is_valid_port(port))
+        return -1;
 
-	// allocate the mbuf pool
+    // allocate the mbuf pool
     char pool_name[32];
     snprintf(pool_name, sizeof(pool_name), "MBUF_POOL_%u", port);    
-	mbuf_pool = rte_pktmbuf_pool_create(pool_name, NUM_MBUFS,
-		MBUF_CACHE_SIZE, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
-	if (mbuf_pool == NULL) {
-		int required_mem = (NUM_MBUFS * (2048 + sizeof(struct rte_mbuf))) * 1 + (MBUF_CACHE_SIZE * sizeof(struct rte_mbuf) * 1);
-		rte_exit(EXIT_FAILURE, "Cannot create mbuf pool. the memory required was: %i\n", required_mem);
-	}
+    mbuf_pool = rte_pktmbuf_pool_create(pool_name, NUM_MBUFS,
+        MBUF_CACHE_SIZE, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
+    if (mbuf_pool == NULL) {
+        int required_mem = (NUM_MBUFS * (2048 + sizeof(struct rte_mbuf))) * 1 + (MBUF_CACHE_SIZE * sizeof(struct rte_mbuf) * 1);
+        rte_exit(EXIT_FAILURE, "Cannot create mbuf pool. the memory required was: %i\n", required_mem);
+    }
 
-	// set up the port configuration
-	memset(&port_conf, 0, sizeof(struct rte_eth_conf));
+    // set up the port configuration
+    memset(&port_conf, 0, sizeof(struct rte_eth_conf));
 
-	// get device info
-	retval = rte_eth_dev_info_get(port, &dev_info);
-	if (retval != 0) {
-		printf("Error during getting device (port %u) info: %s\n",
-				port, strerror(-retval));
-		return retval;
-	}
+    // get device info
+    retval = rte_eth_dev_info_get(port, &dev_info);
+    if (retval != 0) {
+        printf("Error during getting device (port %u) info: %s\n",
+                port, strerror(-retval));
+        return retval;
+    }
 
-	// if (dev_info.tx_offload_capa & RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE)
-	// 	port_conf.txmode.offloads |=
-	// 		RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE;
+    // if (dev_info.tx_offload_capa & RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE)
+    //  port_conf.txmode.offloads |=
+    //      RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE;
 
-	/* Configure the Ethernet device. */
-	retval = rte_eth_dev_configure(port, rx_rings, tx_rings, &port_conf);
-	if (retval != 0)
-		return retval;
+    /* Configure the Ethernet device. */
+    retval = rte_eth_dev_configure(port, rx_rings, tx_rings, &port_conf);
+    if (retval != 0)
+        return retval;
 
-	retval = rte_eth_dev_adjust_nb_rx_tx_desc(port, &nb_rxd, &nb_txd);
-	if (retval != 0)
-		return retval;
+    retval = rte_eth_dev_adjust_nb_rx_tx_desc(port, &nb_rxd, &nb_txd);
+    if (retval != 0)
+        return retval;
 
-	/* Allocate and set up 1 RX queue per Ethernet port. */
-	for (q = 0; q < rx_rings; q++) {
-		retval = rte_eth_rx_queue_setup(port, q, nb_rxd,
-				rte_eth_dev_socket_id(port), NULL, mbuf_pool);
-		if (retval < 0)
-			return retval;
-	}
+    /* Allocate and set up 1 RX queue per Ethernet port. */
+    for (q = 0; q < rx_rings; q++) {
+        retval = rte_eth_rx_queue_setup(port, q, nb_rxd,
+                rte_eth_dev_socket_id(port), NULL, mbuf_pool);
+        if (retval < 0)
+            return retval;
+    }
 
-	txconf = dev_info.default_txconf;
-	txconf.offloads = port_conf.txmode.offloads;
-	/* Allocate and set up 1 TX queue per Ethernet port. */
-	for (q = 0; q < tx_rings; q++) {
-		retval = rte_eth_tx_queue_setup(port, q, nb_txd,
-				rte_eth_dev_socket_id(port), &txconf);
-		if (retval < 0)
-			return retval;
-	}
+    txconf = dev_info.default_txconf;
+    txconf.offloads = port_conf.txmode.offloads;
+    /* Allocate and set up 1 TX queue per Ethernet port. */
+    for (q = 0; q < tx_rings; q++) {
+        retval = rte_eth_tx_queue_setup(port, q, nb_txd,
+                rte_eth_dev_socket_id(port), &txconf);
+        if (retval < 0)
+            return retval;
+    }
 
-	/* Starting Ethernet port. 8< */
-	retval = rte_eth_dev_start(port);
-	/* >8 End of starting of ethernet port. */
-	if (retval < 0)
-		return retval;
+    /* Starting Ethernet port. 8< */
+    retval = rte_eth_dev_start(port);
+    /* >8 End of starting of ethernet port. */
+    if (retval < 0)
+        return retval;
 
-	/* Display the port MAC address. */
-	struct rte_ether_addr addr;
-	retval = rte_eth_macaddr_get(port, &addr);
-	if (retval != 0)
-		return retval;
+    /* Display the port MAC address. */
+    struct rte_ether_addr addr;
+    retval = rte_eth_macaddr_get(port, &addr);
+    if (retval != 0)
+        return retval;
 
-	printf("Port %u MAC: %02" PRIx8 " %02" PRIx8 " %02" PRIx8
-			   " %02" PRIx8 " %02" PRIx8 " %02" PRIx8 "\n",
-			port, RTE_ETHER_ADDR_BYTES(&addr));
+    printf("Port %u MAC: %02" PRIx8 " %02" PRIx8 " %02" PRIx8
+               " %02" PRIx8 " %02" PRIx8 " %02" PRIx8 "\n",
+            port, RTE_ETHER_ADDR_BYTES(&addr));
 
-	/* Enable RX in promiscuous mode for the Ethernet device. */
-	retval = rte_eth_promiscuous_enable(port);
-	/* End of setting RX port in promiscuous mode. */
-	if (retval != 0)
-		return retval;
+    /* Enable RX in promiscuous mode for the Ethernet device. */
+    retval = rte_eth_promiscuous_enable(port);
+    /* End of setting RX port in promiscuous mode. */
+    if (retval != 0)
+        return retval;
 
-	return 0;
+    return 0;
 }
 
 #define MAX_PKT_BURST 32
@@ -301,19 +301,32 @@ static void signal_handler(int signum) {
 
 int main(int argc, char **argv)
 {
-    // Two ports to wire between; these can be stdin args or hardcoded for testing
-    uint16_t network_port = 2;
-    uint16_t host_port = 3;
-
     // Setup signal handlers
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
-    // main DPDK init
-	rte_eal_init(argc, argv); 
-    // list_ports(); // use this to see some info about available ports
-    // int log_level = rte_log_get_global_level();
+    // main DPDK init - this consumes EAL arguments and returns new argc
+    int ret = rte_eal_init(argc, argv);
+    if (ret < 0)
+        rte_exit(EXIT_FAILURE, "Error with EAL initialization\n");
+    // After rte_eal_init, argc/argv are adjusted to skip EAL args
+    argc -= ret;
+    argv += ret;
 
+    // Parse application arguments -- the two ports to forward between
+    uint16_t network_port;
+    uint16_t host_port;
+    if (argc == 3) {
+        network_port = atoi(argv[1]);
+        host_port = atoi(argv[2]);
+    } else {
+        list_ports();
+        printf("Usage: %s [EAL options] -- <network_port> <host_port>\n", argv[0]);        
+        printf("Example: sudo %s -l 0-2 -- 2 3\n", argv[0]);
+        rte_exit(EXIT_FAILURE, "Error: exactly 2 port arguments required\n");
+    }
+     
+    
     // Initialize the port
     port_init(network_port);
     port_init(host_port);
