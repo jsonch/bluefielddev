@@ -3,19 +3,18 @@ Reads packets from first port, sends them to second port.
 And vice versa.
 Each wire is on its own thread.
 
-`build.sh` has a build command that works on bluefield dpu (outside of any docker containers, etc)
+Minimal dependencies and simplest possible code.
 
-- Remember to set hugepages to at least 2048: `sudo sysctl -w vm.nr_hugepages=2048`
+*Make sure that hugepages are configured before running. If not done already, a reasonable default is:* `sudo sysctl -w vm.nr_hugepages=2048`
 
 #### Basic Usage
 
-`./build.sh` -- compile the program
+`./build.sh` -- compile the program. This is a script to show the basic way to compile a dpdk app on the bluefield with minimal toolchain dependencies.
+
+`./wire` -- print information about available ports.
 
 
-`./wire` -- print information about available ports
-
-
-`./wire -l 0-2 -- X Y` start a bidirectional wire between ports X and Y
+`./wire -l 0-2 -- X Y` start a bidirectional wire between ports X and Y.
 
 
 #### Basic Demo
@@ -25,8 +24,13 @@ assume setup is:
 
 `host1 <--> bf1 <--> host2`
 
-- bf1 is a bluefield in host1.
-- host2 is another machine physically connected to bf1's first data plane eth port.
+- host1 is a machine hosting a bluefield nic
+
+- bf1 is the bluefield nic in host1
+
+- host2 is another machine physically connected to bf1's first data plane eth port
+
+- our goal is for the bf1 arm core to act as a bump in the wire, processing each packet from host1 <--> host2
 
 ##### Step 1:
 
