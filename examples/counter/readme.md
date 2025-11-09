@@ -1,1 +1,0 @@
-This example counts RX packets on the open port.
